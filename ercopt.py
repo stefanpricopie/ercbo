@@ -17,14 +17,18 @@ class Optimizer(skopt_Optimizer):
         to determine the next point.
         """
         if self._n_initial_points > 0 or self.base_estimator_ is None:
-            # this will not make a copy of `self.rng` and hence keep advancing
-            # our random state.
-            if self._initial_samples is None:
-                return self.space.rvs(random_state=self.rng)[0]
-            else:
-                # The samples are evaluated starting form initial_samples[0]
-                return self._initial_samples[
-                    len(self._initial_samples) - self._n_initial_points]
+            # _n_initial_points is decremented in `tell`
+            # if _n_initial_points > 0, then the initial set of point is not complete
+            # if base_estimator_ is None, then the base_estimator has not been fit yet
+
+            if self._initial_samples is not None:
+                raise NotImplementedError("Set initial_point_generator to 'random'")
+
+            # initial points are unaffected by the constraint - sample unconstrained
+            next_x = self.erc.sample(constrained=False)
+
+            # evaluation will be performed unconstrained at the next time step
+            self.erc.t += 1
 
         else:
             if not self.models:
@@ -38,5 +42,17 @@ class Optimizer(skopt_Optimizer):
                 warnings.warn("The objective has been evaluated "
                               "at this point before.")
 
-            # return point computed from last call to tell()
-            return next_x
+            # get time step of evaluation
+            if self.strategy != 'commitment' and self.erc.active and not self.erc.in_schema(next_x):
+                # simulate waiting by deactivating constraint and skipping time steps
+                # deactivate constraint
+                self.erc.deactivate()
+
+                # evaluation will be performed after epoch has ended (t mod epoch == 1)
+                self.erc.t += 1 + self.erc.epoch - self.erc.t % self.erc.epoch
+            else:
+                # evaluation will be performed unconstrained at the next time step
+                self.erc.t += 1
+
+        # return point computed from last call to tell()
+        return next_x
