@@ -1,1 +1,3 @@
+# folders to be ignored
 **/__pycache__
+/.idea
